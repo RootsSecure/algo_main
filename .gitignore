@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environment
+nri_proj/
+
+# Local environment
+.env
+.tmp/
+
+# Local databases and runtime files
+data/
+*.db
+*.db-journal
+
+# OS / editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Sandbox-generated temp folders
+pytest-cache-files-*/

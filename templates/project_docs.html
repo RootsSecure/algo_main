@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ title }} Documentation</title>
+  <style>
+    body { font-family: Georgia, serif; background: #f2efe6; color: #1e2a24; margin: 0; }
+    main { max-width: 960px; margin: 0 auto; padding: 48px 24px; }
+    h1 { font-size: 2.4rem; margin-bottom: 0.5rem; }
+    p { line-height: 1.6; }
+    ul { list-style: none; padding: 0; display: grid; gap: 12px; }
+    li { background: #fffdf7; border: 1px solid #d5ccb7; border-radius: 12px; padding: 14px 18px; }
+    a { color: #174a37; text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{{ title }} Project Documentation</h1>
+    <p>
+      This index mirrors the in-repo markdown documentation for the NRI vacant-plot monitoring MVP.
+      Open any entry to view the source document directly from the running backend.
+    </p>
+    <ul>
+      {% for doc in docs %}
+      <li><a href="/project-docs/content/{{ doc.path }}">{{ doc.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </main>
+</body>
+</html>

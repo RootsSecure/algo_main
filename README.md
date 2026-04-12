@@ -87,17 +87,19 @@ The app seeds two users when the schema exists and the records are missing:
 
 Change these immediately in `.env` for any environment beyond local development.
 
-## Edge-device gateway
+## Edge-device gateway (NRI Plot Sentinel Edge Node)
 
-A dedicated hardware gateway is available for Raspberry Pi, normal PC, or other small edge devices running the camera or sensor agent.
+A dedicated hardware gateway and AI agent is provided for Raspberry Pi devices in the `sentinel_edge` folder. This is the official camera node that runs the YOLO INT8 logic engine.
 
 Flow:
 1. Owner or ops provisions a specific registered device through the gateway provision endpoint.
-2. The edge device connects with the provisioning token.
+2. The edge device connects with the provisioning token (see `sentinel_edge/network/api_client.py`).
 3. Backend returns a short-lived session token.
 4. The edge device uses the session token for heartbeats and event uploads.
 
-See `docs/api/raspberry-pi-gateway.md` and `docs/support/raspberry-pi-app-prompt.md` for the full connection contract and app-building prompt.
+For full setup, architecture, and deployment instructions on the Raspberry Pi 4 edge agent, see the **[Sentinel Edge Readme](./sentinel_edge/README.md)**. Included, you will find instructions for `systemd` deployment and hardware configuration.
+
+Additionally, see `docs/api/raspberry-pi-gateway.md` and `docs/support/raspberry-pi-app-prompt.md` for the original connection contract definitions.
 
 ## Release discipline
 

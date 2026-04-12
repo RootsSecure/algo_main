@@ -10,6 +10,7 @@ htmlcov/
 
 # Virtual environment
 nri_proj/
+sentinel_edge/venv/
 
 # Local environment
 .env
@@ -28,3 +29,22 @@ Thumbs.db
 
 # Sandbox-generated temp folders
 pytest-cache-files-*/
+
+# Edge node runtime artifacts
+sentinel_edge/__pycache__/
+sentinel_edge/**/*.pyc
+
+# Hybrid C++ / OpenCV Build Cache
+build/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+*.so
+*.dll
+*.dylib
+*.a
+
+# AI Model Files (Ignored for GitHub size limits)
+*.bin
+*.param

@@ -19,3 +19,13 @@ def test_classify_offline_as_warning() -> None:
     service = AlertService()
     payload = AlertIngest(property_id=1, alert_type=EventType.OFFLINE)
     assert service.classify_severity(payload, recent_alert_count=0) == Severity.WARNING
+
+
+def test_metadata_override_can_force_critical() -> None:
+    service = AlertService()
+    payload = AlertIngest(
+        property_id=1,
+        alert_type=EventType.MANUAL_REPORT,
+        metadata_json={"recommended_severity": "critical"},
+    )
+    assert service.classify_severity(payload, recent_alert_count=0) == Severity.CRITICAL

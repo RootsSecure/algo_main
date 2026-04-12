@@ -1,0 +1,6 @@
+opencv-python-headless>=4.8.0
+ncnn>=1.0.20231027
+requests>=2.31.0
+sdnotify>=0.3.2
+# picamera2 is usually apt installed via pi repository (python3-libcamera python3-kms-cxx), but listing for reference
+# picamera2>=0.3.0

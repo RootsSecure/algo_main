@@ -17,7 +17,20 @@ class AlertService:
         self.audit = AuditService()
         self.incidents = IncidentService()
 
+    def _metadata_severity_override(self, payload: AlertIngest) -> Severity | None:
+        override = str(payload.metadata_json.get("recommended_severity", "")).strip().lower()
+        if override == Severity.CRITICAL.value:
+            return Severity.CRITICAL
+        if override == Severity.WARNING.value:
+            return Severity.WARNING
+        if override == Severity.INFO.value:
+            return Severity.INFO
+        return None
+
     def classify_severity(self, payload: AlertIngest, recent_alert_count: int) -> Severity:
+        metadata_override = self._metadata_severity_override(payload)
+        if metadata_override is not None:
+            return metadata_override
         if payload.alert_type in {EventType.TAMPER, EventType.GATE_BREACH}:
             return Severity.CRITICAL
         if payload.alert_type == EventType.OFFLINE:

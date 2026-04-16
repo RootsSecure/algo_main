@@ -32,5 +32,6 @@ jobs:
         # exit-zero treats all errors as warnings.
         ruff check . --exit-zero
     - name: Test with pytest
-      run: |
-        pytest
+      run: pytest-m pytest
+
+

@@ -33,6 +33,6 @@ jobs:
         ruff check . --exit-zero
     - name: Test with pytest
       run: |
-         pytest-m pytest
+         pytest -m pytest
 
 

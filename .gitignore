@@ -45,12 +45,9 @@ cmake_install.cmake
 *.dylib
 *.a
 
-# AI Model Files (Ignored for GitHub size limits)
-*.bin
-*.param
-*.pt
-*.onnx
-*.weights
+# AI Model Files (Now handled by Git LFS)
+sentinel_edge/directml_venv/
+sentinel_edge/artifacts/
 
 # Training and Results
 runs/

@@ -66,6 +66,26 @@ python core/main.py
 
 The startup path now adjusts `sys.path` so that this command works when launched from the edge directory itself.
 
+## Windows Training With DirectML
+
+The repository now includes a Windows-first training path under `sentinel_edge/training/` that prepares your mixed local datasets into a single YOLO dataset and can launch Ultralytics training with a DirectML device.
+
+Typical flow:
+
+```bash
+powershell -ExecutionPolicy Bypass -File training/setup_directml_env.ps1
+.\directml_venv\Scripts\Activate.ps1
+python -m sentinel_edge.training.prepare_composite_dataset --force
+python -m sentinel_edge.training.train_detector --prepare --device directml --epochs 50 --imgsz 640
+```
+
+Notes:
+
+- DirectML training uses `torch-directml`, so it should be run from a Python 3.10-3.12 environment on Windows.
+- The training script disables AMP automatically when `--device directml` is used, because DirectML does not provide the same autocast path as CUDA.
+- Prepared labels are written in the class order `person`, `jcb`, `tractor`, `truck`.
+- When you deploy exported NCNN weights on the edge node, set `SENTINEL_CLASS_NAMES_FILE` to the generated `classes.txt` so the alert logic can map detections by name instead of brittle numeric IDs.
+
 ## Backend Contract
 
 The edge node uses the backend gateway flow:

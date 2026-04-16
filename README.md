@@ -8,7 +8,6 @@ NRI Plot Sentinel is a backend-first MVP for remotely securing vacant land plots
 
 ## 🚀 Project Status
 Currently in **Alpha**. Core API and Edge Gateway logic are functional. Integration with real hardware (Raspberry Pi 4) is ongoing.
-
 ## Beginner-friendly quick start
 
 If you are new to the project, follow this order:

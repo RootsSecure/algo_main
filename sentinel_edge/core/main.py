@@ -26,6 +26,32 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
+
+def load_class_names(labels_path: str | None) -> list[str]:
+    if not labels_path:
+        return []
+
+    path = Path(labels_path)
+    if not path.exists():
+        logging.warning("Class names file %s was not found. Falling back to raw class IDs.", path)
+        return []
+
+    return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def attach_class_labels(detections, class_names):
+    if not class_names:
+        return detections
+
+    enriched = []
+    for detection in detections:
+        updated = dict(detection)
+        class_id = updated.get("class")
+        if isinstance(class_id, int) and 0 <= class_id < len(class_names):
+            updated["label"] = class_names[class_id]
+        enriched.append(updated)
+    return enriched
+
 def main():
     notifier = None
     if sdnotify:
@@ -39,6 +65,9 @@ def main():
     hardware_id = os.environ.get("SENTINEL_HARDWARE_ID")
     camera_model = os.environ.get("SENTINEL_CAMERA_MODEL", "Pi Camera Module 3")
     client_version = os.environ.get("SENTINEL_CLIENT_VERSION", "sentinel-edge-0.2.0")
+    model_bin_path = os.environ.get("SENTINEL_MODEL_BIN", "yolo26n.bin")
+    model_param_path = os.environ.get("SENTINEL_MODEL_PARAM", "yolo26n.param")
+    class_names = load_class_names(os.environ.get("SENTINEL_CLASS_NAMES_FILE"))
     
     # 1. Connect API Gateway
     api = SentinelAPIClient(
@@ -56,7 +85,7 @@ def main():
         logging.error("Compiled C++ sentinel_vision.so not found in PYTHONPATH. Run 'make' in build/ directory.")
         sys.exit(1)
         
-    camera = HybridVisionCore("yolo26n.bin", "yolo26n.param")
+    camera = HybridVisionCore(model_bin_path, model_param_path)
     if not camera.start_camera(0, 1920, 1080):
         logging.error("Failed to start V4L2 Native Camera hook.")
         sys.exit(1)
@@ -82,7 +111,7 @@ def main():
             result = camera.process_frame(threshold_ratio=0.05)
             
             if result.get("has_motion"):
-                detections = result.get("detections", [])
+                detections = attach_class_labels(result.get("detections", []), class_names)
                 
                 # Evaluate state machine rules
                 alerts = logic_engine.evaluate(detections)

@@ -1,0 +1,223 @@
+#:kivy 2.1.0
+#:import utils kivy.utils
+
+# --------------------------------------------------------------------------
+# IMPORTANT: Ensure custom fonts are registered in your main Python script!
+# from kivy.core.text import LabelBase
+# LabelBase.register(name='SpaceGrotesk', fn_regular='font/SpaceGrotesk-Regular.ttf')
+# LabelBase.register(name='Inter', fn_regular='font/Inter-Regular.ttf')
+# --------------------------------------------------------------------------
+
+<RootDashboard>:
+    # Assuming RootDashboard inherits from FloatLayout or similar to allow overlays
+    
+    BoxLayout:
+        orientation: 'vertical'
+        canvas.before:
+            Color:
+                rgba: utils.get_color_from_hex('#0B1014') # Obsidian base color
+            Rectangle:
+                pos: self.pos
+                size: self.size
+
+        # --- 1. Heartbeat Indicator & System Status ---
+        BoxLayout:
+            size_hint_y: 0.1
+            padding: "15dp"
+            
+            Label:
+                text: "Digital Panopticon"
+                font_name: "Inter"
+                bold: True
+                font_size: "20sp"
+                color: 1, 1, 1, 1
+                halign: "left"
+                size_hint_x: 0.7
+                text_size: self.size
+                valign: "middle"
+                
+            BoxLayout:
+                size_hint_x: 0.3
+                orientation: 'horizontal'
+                # Heartbeat circle
+                Widget:
+                    size_hint: None, None
+                    size: "12dp", "12dp"
+                    pos_hint: {'center_y': .5}
+                    canvas.before:
+                        Color:
+                            # Bound to our python alert handler state (Teal or Dim Grey)
+                            rgba: utils.get_color_from_hex(app.alert_handler.heartbeat_color)
+                        Ellipse:
+                            pos: self.pos
+                            size: self.size
+                Label:
+                    id: heartbeat_text
+                    text: app.alert_handler.heartbeat_status
+                    font_name: "Inter"
+                    color: 0.8, 0.8, 0.8, 1
+                    halign: "left"
+                    padding_x: "10dp"
+
+        # --- 2. Live Dashboard Area (e.g. SOIL THEFT Counter) ---
+        BoxLayout:
+            size_hint_y: 0.15
+            orientation: 'vertical'
+            padding: "15dp"
+            canvas.before:
+                Color:
+                    rgba: utils.get_color_from_hex('#121A20')
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [8]
+            
+            Label:
+                text: "Time Since Detection (Soil Theft)"
+                font_name: "Inter"
+                font_size: "14sp"
+                color: 0.6, 0.6, 0.6, 1
+                halign: "center"
+                
+            Label:
+                id: live_duration_counter
+                text: "0s"
+                font_name: "SpaceGrotesk"  # Numeric telemetry font
+                font_size: "36sp"
+                color: utils.get_color_from_hex('#E53535') # Alert Red
+
+        # --- 3. Edge Node Health Deep-Dive: Visual Proof Integration ---
+        BoxLayout:
+            size_hint_y: 0.35
+            padding: "10dp"
+            orientation: 'vertical'
+            
+            Label:
+                text: "Visual Proof Loader"
+                font_name: "Inter"
+                font_size: "14sp"
+                halign: "left"
+                size_hint_y: 0.1
+                text_size: self.size
+                
+            # AsyncImage used per requirement to prevent stuttering while pulling 1080p Pi images
+            AsyncImage:
+                id: visual_proof_viewer
+                source: 'images/standby_placeholder.png'  # Default state
+                allow_stretch: True
+                keep_ratio: True
+                size_hint_y: 0.9
+
+        # --- 4. Event Timeline ---
+        ScrollView:
+            size_hint_y: 0.4
+            
+            GridLayout:
+                id: timeline_container
+                cols: 1
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: "12dp"
+                padding: "15dp"
+
+        # Placeholder for Critical Flashing Overlay (hidden by default)
+        # Toggled by AlertHandler logic when level=="CRITICAL"
+        Widget:
+            id: critical_overlay
+            opacity: 0       # 0 = hidden, 1 = shown
+            canvas.after:
+                Color:
+                    rgba: utils.get_color_from_hex('#008080') # Teal flashing effect base
+                Rectangle:
+                    pos: root.pos
+                    size: root.size
+
+
+# --------------------------------------------------------------------------
+# Stitch Design System: Asymmetrical Event Widget Module
+# --------------------------------------------------------------------------
+<TimelineEventWidget@BoxLayout>:
+    # Bound properties manipulated dynamically by Python
+    event_level_color: '#FFBF00' # Defaults to Amber pulse High priority
+    event_title: "Illegal Construction Detected"
+    event_confidence: "92%"
+    event_pixel_change: "18%"
+
+    size_hint_y: None
+    height: "85dp"
+    padding: "8dp"
+    spacing: "12dp"
+    
+    # Asymmetrical bounding box (Stitch design rules)
+    canvas.before:
+        Color:
+            rgba: utils.get_color_from_hex('#1A2229')
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [0, 16, 16, 16] # Asymmetrical cornering
+
+    # Status Strip (Amber vs Teal based on severity)
+    Widget:
+        size_hint_x: None
+        width: "6dp"
+        canvas:
+            Color:
+                rgba: utils.get_color_from_hex(root.event_level_color)
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [4]
+                
+    # Content Stack
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: "4dp"
+        
+        # Threat Title (Inter)
+        Label:
+            text: root.event_title
+            font_name: "Inter"
+            bold: True
+            font_size: "15sp"
+            color: 1, 1, 1, 1
+            text_size: self.size
+            halign: 'left'
+            valign: 'bottom'
+
+        # Telemetry Metadata row (Space Grotesk)
+        BoxLayout:
+            orientation: 'horizontal'
+            spacing: "15dp"
+            
+            # Confidence stat
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_x: None
+                width: "90dp"
+                Label:
+                    text: "Conf:"
+                    font_name: "Inter"
+                    font_size: "12sp"
+                    color: 0.5, 0.5, 0.5, 1
+                Label:
+                    text: root.event_confidence
+                    font_name: "SpaceGrotesk"
+                    font_size: "13sp"
+                    color: 0.8, 0.8, 0.8, 1
+
+            # Pixel Change stat
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_x: None
+                width: "110dp"
+                Label:
+                    text: "Px Change:"
+                    font_name: "Inter"
+                    font_size: "12sp"
+                    color: 0.5, 0.5, 0.5, 1
+                Label:
+                    text: root.event_pixel_change
+                    font_name: "SpaceGrotesk"
+                    font_size: "13sp"
+                    color: 0.8, 0.8, 0.8, 1

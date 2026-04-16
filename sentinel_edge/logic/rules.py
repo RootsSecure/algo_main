@@ -55,13 +55,25 @@ class SentinelLogicEngine:
         current_tractor_box = None
 
         for d in detections:
-            cid = d['class']
-            if cid == 1: # jcb
+            cid = d.get('class')
+            label = (d.get('label') or '').strip().lower()
+
+            if not label:
+                legacy_map = {
+                    0: "person",
+                    1: "jcb",
+                    2: "worker",
+                    4: "tractor",
+                    5: "shovel",
+                }
+                label = legacy_map.get(cid, "")
+
+            if label in {"jcb", "excavator"}:
                 has_jcb = True
-            elif cid == 4: # tractor
+            elif label == "tractor":
                 has_tractor = True
                 current_tractor_box = d['bbox']
-            elif cid in [0, 2, 5]:  # person, worker, shovel
+            elif label in {"person", "worker", "human", "shovel"}:
                 has_person_or_shovel = True
 
         # ----------------------------------------------------

@@ -1,0 +1,49 @@
+task: detect
+mode: train
+
+# Important: this should point to Phase 1 best.pt at run time.
+model: runs/detect/runs/jcb_ppe/phase1_adamw2/weights/best.pt
+data: datasets/merged_jcb_ppe/data.yaml
+
+# Phase 2: conservative refinement for deployment
+epochs: 40
+imgsz: 640
+batch: 8
+optimizer: SGD
+lr0: 0.002
+lrf: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+warmup_epochs: 1.0
+warmup_momentum: 0.8
+warmup_bias_lr: 0.1
+
+box: 7.5
+cls: 0.5
+dfl: 1.5
+
+# Lighter augmentations during refinement
+hsv_h: 0.01
+hsv_s: 0.5
+hsv_v: 0.3
+degrees: 2.0
+translate: 0.05
+scale: 0.3
+shear: 0.5
+perspective: 0.0
+flipud: 0.0
+fliplr: 0.5
+mosaic: 0.2
+mixup: 0.0
+close_mosaic: 5
+
+cos_lr: true
+patience: 15
+
+amp: true
+workers: 8
+seed: 42
+deterministic: true
+
+project: runs/jcb_ppe
+name: phase2_sgd

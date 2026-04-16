@@ -1,0 +1,76 @@
+{
+  "source_datasets": [
+    "data1",
+    "data2",
+    "data3",
+    "data4",
+    "data5"
+  ],
+  "global_classes": [
+    "vest",
+    "concrete",
+    "crane",
+    "jcb",
+    "dump_truck",
+    "helmet",
+    "person",
+    "wood",
+    "head",
+    "concrete_mixer_truck",
+    "adjustable_wrench",
+    "combination_wrench",
+    "double_box_end_wrench",
+    "double_open_end_wrench",
+    "hammer",
+    "level",
+    "mallet",
+    "nuts",
+    "pipe_wrench",
+    "pliers",
+    "pliers_wrench",
+    "screw",
+    "screwdriver",
+    "single_open_end_wrench",
+    "tape_measure",
+    "washer",
+    "no_safety_vest"
+  ],
+  "global_class_count": 27,
+  "per_dataset_split_counts": {
+    "data1": {
+      "train": 800,
+      "val": 100,
+      "test": 100
+    },
+    "data2": {
+      "train": 5627,
+      "val": 703,
+      "test": 704
+    },
+    "data3": {
+      "train": 2400,
+      "val": 300,
+      "test": 301
+    },
+    "data4": {
+      "train": 2628,
+      "val": 328,
+      "test": 330
+    },
+    "data5": {
+      "train": 11847,
+      "val": 1480,
+      "test": 1482
+    }
+  },
+  "merged_split_counts": {
+    "train": 23302,
+    "val": 2911,
+    "test": 2917
+  },
+  "images_copied": 29130,
+  "labels_written": 29130,
+  "label_lines_written": 72999,
+  "invalid_label_lines_skipped": 0,
+  "missing_label_files": 200
+}

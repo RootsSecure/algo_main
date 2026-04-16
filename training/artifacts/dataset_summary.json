@@ -1,0 +1,32 @@
+{
+  "class_names": [
+    "jcb",
+    "helmet",
+    "gloves",
+    "vest",
+    "boots",
+    "goggles",
+    "none",
+    "person",
+    "no_helmet",
+    "no_goggle",
+    "no_gloves",
+    "no_boots"
+  ],
+  "counts": {
+    "ppe_images": 1416,
+    "ppe_labels_written": 11521,
+    "ppe_labels_skipped": 0,
+    "jcb_images_total": 201,
+    "jcb_images_used": 201,
+    "jcb_images_missing_xml": 0,
+    "jcb_images_without_boxes": 0,
+    "jcb_boxes_written": 257
+  },
+  "jcb_split_sizes": {
+    "train": 160,
+    "val": 20,
+    "test": 21
+  },
+  "merged_root": "D:\\fu\\algo_main-main\\datasets\\merged_jcb_ppe"
+}

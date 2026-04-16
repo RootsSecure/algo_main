@@ -1,0 +1,42 @@
+#=#=#                                                                          ##O#-#                                                                         curl: (7) Failed to connect to github.com port 443 via 127.0.0.1 after 2020 ms: Could not connect to server
+
+#=#=#                                                                          ##O#-#                                                                         curl: (7) Failed to connect to github.com port 443 via 127.0.0.1 after 2026 ms: Could not connect to server
+
+#=#=#                                                                          ##O#-#                                                                         curl: (7) Failed to connect to github.com port 443 via 127.0.0.1 after 2019 ms: Could not connect to server
+
+Traceback (most recent call last):
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\utils\downloads.py", line 335, in safe_download
+    assert r == 0, f"Curl return value {r}"
+           ^^^^^^
+AssertionError: Curl return value 7
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Scripts\yolo.exe\__main__.py", line 6, in <module>
+    sys.exit(entrypoint())
+             ~~~~~~~~~~^^
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\cfg\__init__.py", line 956, in entrypoint
+    model = YOLO(model, task=task)
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\models\yolo\model.py", line 76, in __init__
+    super().__init__(model=model, task=task, verbose=verbose)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\engine\model.py", line 144, in __init__
+    self._load(model, task=task)
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\engine\model.py", line 283, in _load
+    self.model, self.ckpt = load_checkpoint(weights)
+                            ~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\nn\tasks.py", line 1515, in load_checkpoint
+    ckpt, weight = torch_safe_load(weight)  # load ckpt
+                   ~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\nn\tasks.py", line 1435, in torch_safe_load
+    file = attempt_download_asset(weight)  # search online if missing locally
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\utils\downloads.py", line 473, in attempt_download_asset
+    safe_download(url=f"{download_url}/{release}/{name}", file=file, min_bytes=1e5, **kwargs)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ps888\AppData\Local\Programs\Python\Python314\Lib\site-packages\ultralytics\utils\downloads.py", line 376, in safe_download
+    raise ConnectionError(emojis(f"\u274c  Download failure for {uri}. Retry limit reached. {e}")) from e
+ConnectionError:   Download failure for https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt. Retry limit reached. Curl return value 7

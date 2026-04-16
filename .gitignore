@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environment
+nri_proj/
+sentinel_edge/venv/
+
+# Local environment
+.env
+.tmp/
+
+# Local databases and runtime files
+data/
+*.db
+*.db-journal
+
+# OS / editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Sandbox-generated temp folders
+pytest-cache-files-*/
+
+# Edge node runtime artifacts
+sentinel_edge/__pycache__/
+sentinel_edge/**/*.pyc
+
+# Hybrid C++ / OpenCV Build Cache
+build/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+*.so
+*.dll
+*.dylib
+*.a
+
+# AI Model Files (Ignored for GitHub size limits)
+*.bin
+*.param
+*.pt
+*.onnx
+*.weights
+
+# Training and Results
+runs/
+datasets/
+
+# Scratch and Temporary files
+scratch/
+test_results/
+
+# Editor etc.
+.ipynb_checkpoints/

@@ -9,6 +9,7 @@ import psutil
 import socket
 import tempfile
 import paho.mqtt.client as mqtt
+from picamera2 import Picamera2
 from pathlib import Path
 from datetime import datetime
 from uuid import uuid4
@@ -299,55 +300,79 @@ class SentinelNode:
 
     def run(self):
         logging.info(f"Sentinel Node {NODE_ID} (Cloud-Native v{FIRMWARE_VERSION}) Operational.")
-        cap = cv2.VideoCapture(0)
 
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
+        # Initialize Picamera2 (Raspberry Pi OS Bookworm)
+        cam = Picamera2()
+        config = cam.create_video_configuration(
+            main={"size": (1920, 1080), "format": "RGB888"},
+            lores={"size": (640, 480), "format": "RGB888"},
+            buffer_count=4
+        )
+        cam.configure(config)
+        cam.start()
+        time.sleep(2)  # Camera warmup
+        logging.info("Picamera2 initialized and streaming.")
 
-            # Phase 1: Motion Gate
-            is_motion, ratio = self.motion_gate.has_motion(frame)
-            if is_motion:
-                # Phase 2: AI Inference (Placeholder for NCNN bindings)
-                detections = []
+        try:
+            while True:
+                # Capture frame from the low-res stream for motion/inference
+                frame = cam.capture_array("lores")
+                # Convert RGB to BGR for OpenCV compatibility
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-                # Phase 3: Sentinel Logic
-                threats = self.logic.evaluate(detections)
+                # Phase 1: Motion Gate
+                is_motion, ratio = self.motion_gate.has_motion(frame_bgr)
+                if is_motion:
+                    # Phase 2: AI Inference (Placeholder for NCNN bindings)
+                    detections = []
 
-                if threats:
-                    event_id = str(uuid4())
+                    # Phase 3: Sentinel Logic
+                    threats = self.logic.evaluate(detections)
 
-                    # Upload evidence to cloud storage
-                    cloud_url = self._upload_evidence(frame, event_id)
+                    if threats:
+                        event_id = str(uuid4())
 
-                    media_refs = [cloud_url] if cloud_url else []
+                        # Capture high-res frame for evidence
+                        proof_frame = cam.capture_array("main")
+                        proof_bgr = cv2.cvtColor(proof_frame, cv2.COLOR_RGB2BGR)
 
-                    for t in threats:
-                        alert_payload = {
-                            "vendor_event_id": event_id,
-                            "alert_type": "Auto",
-                            "occurred_at": datetime.utcnow().isoformat() + "Z",
-                            "node_id": NODE_ID,
-                            "metadata_json": {
-                                "edge_event_type": t["type"],
-                                "recommended_severity": t["level"],
-                                "logic_level": t["level"],
-                                "reason": t["reason"],
-                                "motion_ratio": round(ratio, 4),
-                                "inference_model": "yolo11n-int8-ncnn",
-                                "confidence": 0.0
-                            },
-                            "media_refs": media_refs
-                        }
-                        self.mqtt.publish(
-                            f"sentinel/{NODE_ID}/alerts",
-                            json.dumps(alert_payload),
-                            qos=1
-                        )
-                        logging.warning(f"ALERT DISPATCHED: {t['type']} | Evidence: {cloud_url or 'BUFFERED'}")
+                        # Upload evidence to cloud storage
+                        cloud_url = self._upload_evidence(proof_bgr, event_id)
 
-            time.sleep(0.01)  # ~100 FPS yield
+                        media_refs = [cloud_url] if cloud_url else []
+
+                        for t in threats:
+                            alert_payload = {
+                                "vendor_event_id": event_id,
+                                "alert_type": "Auto",
+                                "occurred_at": datetime.utcnow().isoformat() + "Z",
+                                "node_id": NODE_ID,
+                                "metadata_json": {
+                                    "edge_event_type": t["type"],
+                                    "recommended_severity": t["level"],
+                                    "logic_level": t["level"],
+                                    "reason": t["reason"],
+                                    "motion_ratio": round(ratio, 4),
+                                    "inference_model": "yolo11n-int8-ncnn",
+                                    "confidence": 0.0
+                                },
+                                "media_refs": media_refs
+                            }
+                            self.mqtt.publish(
+                                f"sentinel/{NODE_ID}/alerts",
+                                json.dumps(alert_payload),
+                                qos=1
+                            )
+                            logging.warning(f"ALERT DISPATCHED: {t['type']} | Evidence: {cloud_url or 'BUFFERED'}")
+
+                time.sleep(0.01)  # ~100 FPS yield
+
+        except KeyboardInterrupt:
+            logging.info("Shutting down gracefully...")
+        finally:
+            cam.stop()
+            cam.close()
+            logging.info("Camera released. Sentinel stopped.")
 
 
 if __name__ == "__main__":

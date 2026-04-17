@@ -305,7 +305,7 @@ class SentinelNode:
         cam = Picamera2()
         config = cam.create_video_configuration(
             main={"size": (1920, 1080), "format": "RGB888"},
-            lores={"size": (640, 480), "format": "RGB888"},
+            lores={"size": (640, 480), "format": "YUV420"},
             buffer_count=4
         )
         cam.configure(config)
@@ -315,10 +315,10 @@ class SentinelNode:
 
         try:
             while True:
-                # Capture frame from the low-res stream for motion/inference
-                frame = cam.capture_array("lores")
-                # Convert RGB to BGR for OpenCV compatibility
-                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                # Capture frame from the low-res YUV stream for motion/inference
+                frame_yuv = cam.capture_array("lores")
+                # Convert YUV to BGR for OpenCV compatibility
+                frame_bgr = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV420p2BGR)
 
                 # Phase 1: Motion Gate
                 is_motion, ratio = self.motion_gate.has_motion(frame_bgr)

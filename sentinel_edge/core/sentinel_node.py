@@ -1,42 +1,92 @@
 import cv2
 import time
 import json
+import ssl
 import threading
 import logging
 import os
 import psutil
-import socket # Added for dynamic IP resolution
+import socket
+import tempfile
 import paho.mqtt.client as mqtt
 from pathlib import Path
 from datetime import datetime
 from uuid import uuid4
 
-# --- Configuration Constants ---
+# ---------------------------------------------------------------------------
+# Configuration Constants (Cloud-Native v2.0)
+# ---------------------------------------------------------------------------
 NODE_ID = os.environ.get("SENTINEL_NODE_ID", "NODE_001")
-MQTT_BROKER = "127.0.0.1" # Updated to Localhost for internal resilience
-MQTT_PORT = 1883
-MEDIA_DIR = "/var/www/html/media/alerts/"
+FIRMWARE_VERSION = "2.0.0"
+
+# Cloud MQTT Broker (HiveMQ / AWS IoT Core / EMQX)
+MQTT_CLOUD_BROKER = os.environ.get("MQTT_CLOUD_BROKER", "broker.hivemq.cloud")
+MQTT_CLOUD_PORT = int(os.environ.get("MQTT_CLOUD_PORT", "8883"))
+MQTT_CLOUD_USER = os.environ.get("MQTT_CLOUD_USER", "")
+MQTT_CLOUD_PASS = os.environ.get("MQTT_CLOUD_PASS", "")
+
+# Cloud Storage (AWS S3 / Firebase / GCS)
+CLOUD_BUCKET_NAME = os.environ.get("SENTINEL_CLOUD_BUCKET", "rootssecure-evidence")
+
+# Local buffer for frames pending upload
+LOCAL_BUFFER_DIR = "/tmp/sentinel_buffer/"
 STORAGE_THRESHOLD_PERCENT = 80.0
 HEARTBEAT_INTERVAL = 60
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def get_local_ip():
-    """Robust helper to fetch the current active local IP address."""
+    """Fetch the current active local IP address."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        # Using Google's DNS as a target (doesn't need to be reachable) 
-        # to force the OS to pick the active outgoing interface.
         s.connect(('8.8.8.8', 1))
-        IP = s.getsockname()[0]
+        ip = s.getsockname()[0]
     except Exception:
-        IP = '127.0.0.1'
+        ip = '127.0.0.1'
     finally:
         s.close()
-    return IP
+    return ip
+
+
+def upload_to_cloud(local_path, cloud_key):
+    """
+    Upload a local file to a cloud storage bucket and return a public/pre-signed URL.
+    
+    This is a placeholder implementation. Replace the body of this function
+    with actual SDK calls for your chosen cloud provider:
+    
+    - AWS S3:       boto3.client('s3').upload_file(...) + generate_presigned_url(...)
+    - Firebase:     firebase_admin.storage.bucket().blob(...).upload_from_filename(...)
+    - Google Cloud: google.cloud.storage.Client().bucket(...).blob(...).upload_from_filename(...)
+    """
+    # --- PLACEHOLDER: Simulate a cloud upload ---
+    logging.info(f"[CloudUpload] Uploading {local_path} -> bucket:{CLOUD_BUCKET_NAME}/{cloud_key}")
+
+    # In production, replace the line below with actual upload logic.
+    # The function should return the publicly accessible URL of the uploaded file.
+    simulated_url = f"https://{CLOUD_BUCKET_NAME}.s3.amazonaws.com/{cloud_key}"
+
+    # After a real upload succeeds, delete the local temp file:
+    # try:
+    #     os.remove(local_path)
+    # except OSError:
+    #     pass
+
+    return simulated_url
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Motion Gating (MOG2)
+# ---------------------------------------------------------------------------
 
 class MotionGate:
-    """Phase 1: MOG2 Background Subtraction Gating"""
+    """Blocks expensive inference until pixel-change ratio exceeds threshold."""
     def __init__(self, threshold=0.05):
-        self.mog2 = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=False)
+        self.mog2 = cv2.createBackgroundSubtractorMOG2(
+            history=500, varThreshold=16, detectShadows=False
+        )
         self.threshold = threshold
 
     def has_motion(self, frame):
@@ -44,32 +94,45 @@ class MotionGate:
         motion_ratio = cv2.countNonZero(fg_mask) / (frame.shape[0] * frame.shape[1])
         return motion_ratio >= self.threshold, motion_ratio
 
+
+# ---------------------------------------------------------------------------
+# Phase 3: Heuristic Logic Engine
+# ---------------------------------------------------------------------------
+
 class LogicEngine:
-    """Phase 3: Heuristic Threat Evaluation"""
+    """Converts raw detections into high-level security alerts."""
     def __init__(self):
         self.jcb_frames = 0
         self.tractor_start_pos = None
         self.tractor_start_time = None
-        self.variance_threshold = 0.10 
+        self.variance_threshold = 0.10
 
     def evaluate(self, detections):
         alerts = []
         labels = {d['class'] for d in detections}
-        
-        # Rule: JCB 5-Frame Persistence
+
+        # Rule 1: JCB 5-Frame Persistence
         if 'jcb' in labels:
             self.jcb_frames += 1
             if self.jcb_frames >= 5:
-                alerts.append({"type": "ILLEGAL_CONSTRUCTION", "level": "CRITICAL", "reason": "JCB persistence detected"})
-                self.jcb_frames = -10 # Cooldown
+                alerts.append({
+                    "type": "ILLEGAL_CONSTRUCTION",
+                    "level": "CRITICAL",
+                    "reason": "JCB persistence detected (5-frame rule triggered)"
+                })
+                self.jcb_frames = -10  # Cooldown
         else:
             self.jcb_frames = max(0, self.jcb_frames - 1)
 
-        # Rule: Tractor + Person Contextual Trigger
+        # Rule 2: Tractor + Person Contextual Trigger
         if 'tractor' in labels and ('person' in labels or 'worker' in labels):
-            alerts.append({"type": "SOIL_THEFT_ACTIVE", "level": "HIGH", "reason": "Tractor and personnel associated"})
+            alerts.append({
+                "type": "SOIL_THEFT_ACTIVE",
+                "level": "HIGH",
+                "reason": "Tractor and personnel associated"
+            })
 
-        # Rule: Stationary Tractor Analysis
+        # Rule 3: Stationary Tractor Centroid Drift Analysis
         tractor_det = next((d for d in detections if d['class'] == 'tractor'), None)
         if tractor_det:
             curr_pos = tractor_det['bbox']
@@ -82,87 +145,210 @@ class LogicEngine:
                 if dx > self.variance_threshold or dy > self.variance_threshold:
                     self.tractor_start_pos = curr_pos
                     self.tractor_start_time = time.time()
-                elif time.time() - self.tractor_start_time > 300: # 5 mins
-                    alerts.append({"type": "SOIL_THEFT_ESCALATION", "level": "CRITICAL", "reason": "Stationary tractor > 5 mins"})
+                elif time.time() - self.tractor_start_time > 300:  # 5 minutes
+                    alerts.append({
+                        "type": "SOIL_THEFT_ESCALATION",
+                        "level": "CRITICAL",
+                        "reason": "Stationary tractor > 5 mins"
+                    })
                     self.tractor_start_time = time.time()
         return alerts
 
+
+# ---------------------------------------------------------------------------
+# Main Node: Cloud-Native Sentinel
+# ---------------------------------------------------------------------------
+
 class SentinelNode:
     def __init__(self):
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s [%(levelname)s] %(message)s'
+        )
+
         self.motion_gate = MotionGate()
         self.logic = LogicEngine()
-        
-        # MQTT Setup: Binding to Localhost (127.0.0.1)
-        self.mqtt = mqtt.Client(client_id=NODE_ID)
-        self.mqtt.connect(MQTT_BROKER, MQTT_PORT, 60)
-        self.mqtt.loop_start()
-        
-        Path(MEDIA_DIR).mkdir(parents=True, exist_ok=True)
+        self.cloud_connected = False
+
+        # --- Cloud MQTT Setup (TLS on port 8883) ---
+        self.mqtt = mqtt.Client(
+            client_id=NODE_ID,
+            callback_api_version=mqtt.CallbackAPIVersion.VERSION2
+        )
+        self.mqtt.username_pw_set(MQTT_CLOUD_USER, MQTT_CLOUD_PASS)
+        self.mqtt.tls_set(tls_version=ssl.PROTOCOL_TLS_CLIENT)
+        self.mqtt.tls_insecure_set(False)
+
+        self.mqtt.on_connect = self._on_connect
+        self.mqtt.on_disconnect = self._on_disconnect
+
+        try:
+            self.mqtt.connect(MQTT_CLOUD_BROKER, MQTT_CLOUD_PORT, 60)
+            self.mqtt.loop_start()
+        except Exception as e:
+            logging.error(f"Cloud MQTT connection failed: {e}. Will retry in background.")
+            self.mqtt.loop_start()  # Paho will auto-reconnect
+
+        # Local buffer directory for frames pending cloud upload
+        Path(LOCAL_BUFFER_DIR).mkdir(parents=True, exist_ok=True)
+
+        # Start background threads
         threading.Thread(target=self._heartbeat_loop, daemon=True).start()
+        threading.Thread(target=self._retry_upload_loop, daemon=True).start()
+
+    # --- MQTT Callbacks ---
+
+    def _on_connect(self, client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            self.cloud_connected = True
+            logging.info(f"Connected to Cloud MQTT Broker: {MQTT_CLOUD_BROKER}:{MQTT_CLOUD_PORT}")
+        else:
+            self.cloud_connected = False
+            logging.error(f"Cloud MQTT connection refused (rc={rc})")
+
+    def _on_disconnect(self, client, userdata, flags, rc, properties=None):
+        self.cloud_connected = False
+        logging.warning(f"Disconnected from Cloud MQTT (rc={rc}). Auto-reconnecting...")
+
+    # --- Heartbeat (Non-blocking background thread) ---
 
     def _heartbeat_loop(self):
         while True:
             try:
                 payload = {
+                    "node_id": NODE_ID,
                     "cpu_temp_c": self._get_cpu_temp(),
                     "ram_usage_percent": psutil.virtual_memory().percent,
                     "battery_percent": 100,
                     "network_latency_ms": 0,
                     "power_status": "AC_CONNECTED",
                     "storage_usage_percent": psutil.disk_usage('/').percent,
-                    "local_ip": get_local_ip() # SURFACING IP IN HEARTBEAT
+                    "uplink_status": "CLOUD_CONNECTED" if self.cloud_connected else "CLOUD_DISCONNECTED",
+                    "firmware_version": FIRMWARE_VERSION
                 }
-                self.mqtt.publish(f"sentinel/{NODE_ID}/heartbeat", json.dumps(payload), qos=0)
-                self._storage_cleanup()
+                self.mqtt.publish(
+                    f"sentinel/{NODE_ID}/heartbeat",
+                    json.dumps(payload),
+                    qos=0
+                )
+                logging.info(f"Heartbeat sent | CPU: {payload['cpu_temp_c']}°C | Uplink: {payload['uplink_status']}")
             except Exception as e:
-                logging.error(f"Heartbeat loop error: {e}")
+                logging.error(f"Heartbeat error: {e}")
             time.sleep(HEARTBEAT_INTERVAL)
+
+    # --- Retry Loop: Upload buffered frames that failed earlier ---
+
+    def _retry_upload_loop(self):
+        """Retries uploading any frames stuck in the local buffer."""
+        while True:
+            time.sleep(60)
+            try:
+                buffer_path = Path(LOCAL_BUFFER_DIR)
+                pending = list(buffer_path.glob("*.jpg"))
+                if pending:
+                    logging.info(f"[RetryUpload] {len(pending)} buffered frame(s) found. Retrying...")
+                for f in pending:
+                    cloud_key = f"evidence/{NODE_ID}/{datetime.utcnow().strftime('%Y-%m-%d')}/{f.stem}.jpg"
+                    try:
+                        upload_to_cloud(str(f), cloud_key)
+                        f.unlink()  # Remove local copy after successful upload
+                        logging.info(f"[RetryUpload] Successfully uploaded: {f.name}")
+                    except Exception as e:
+                        logging.warning(f"[RetryUpload] Failed for {f.name}: {e}")
+            except Exception as e:
+                logging.error(f"[RetryUpload] Loop error: {e}")
+
+    # --- System Helpers ---
 
     def _get_cpu_temp(self):
         try:
             with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
                 return int(f.read()) / 1000.0
-        except: return 0.0
+        except Exception:
+            return 0.0
 
-    def _storage_cleanup(self):
-        usage = psutil.disk_usage(MEDIA_DIR).percent
-        if usage > STORAGE_THRESHOLD_PERCENT:
-            files = sorted(Path(MEDIA_DIR).glob("*.jpg"), key=os.path.getmtime)
-            for f in files[:len(files)//4]: f.unlink()
+    # --- Cloud Media Upload ---
+
+    def _upload_evidence(self, frame, event_id):
+        """
+        Save frame locally, upload to cloud, return cloud URL.
+        Falls back to local buffer if upload fails.
+        """
+        date_str = datetime.utcnow().strftime('%Y-%m-%d')
+        filename = f"{event_id}.jpg"
+        local_path = os.path.join(LOCAL_BUFFER_DIR, filename)
+        cloud_key = f"evidence/{NODE_ID}/{date_str}/{filename}"
+
+        # Save frame to local buffer first
+        cv2.imwrite(local_path, frame)
+
+        try:
+            cloud_url = upload_to_cloud(local_path, cloud_key)
+            # On successful upload, remove local copy
+            try:
+                os.remove(local_path)
+            except OSError:
+                pass
+            return cloud_url
+        except Exception as e:
+            logging.warning(f"Cloud upload failed ({e}). Frame buffered locally for retry.")
+            # File remains in LOCAL_BUFFER_DIR for _retry_upload_loop to pick up
+            return None
+
+    # --- Main Vision Loop ---
 
     def run(self):
-        logging.info(f"Sentinel Node {NODE_ID} (Station Mode) Operational.")
+        logging.info(f"Sentinel Node {NODE_ID} (Cloud-Native v{FIRMWARE_VERSION}) Operational.")
         cap = cv2.VideoCapture(0)
-        
+
         while cap.isOpened():
             ret, frame = cap.read()
-            if not ret: break
-            
+            if not ret:
+                break
+
+            # Phase 1: Motion Gate
             is_motion, ratio = self.motion_gate.has_motion(frame)
             if is_motion:
-                # Placeholder for NCNN inference call
-                detections = [] 
+                # Phase 2: AI Inference (Placeholder for NCNN bindings)
+                detections = []
+
+                # Phase 3: Sentinel Logic
                 threats = self.logic.evaluate(detections)
-                
+
                 if threats:
-                    # DYNAMIC IP RESOLUTION FOR MEDIA URLS
-                    current_ip = get_local_ip()
-                    filename = f"event_{int(time.time())}.jpg"
-                    media_url = f"http://{current_ip}/media/alerts/{filename}"
-                    
-                    cv2.imwrite(os.path.join(MEDIA_DIR, filename), frame)
-                    
+                    event_id = str(uuid4())
+
+                    # Upload evidence to cloud storage
+                    cloud_url = self._upload_evidence(frame, event_id)
+
+                    media_refs = [cloud_url] if cloud_url else []
+
                     for t in threats:
-                        self.mqtt.publish(f"sentinel/{NODE_ID}/alerts", json.dumps({
-                            "vendor_event_id": str(uuid4()), 
+                        alert_payload = {
+                            "vendor_event_id": event_id,
                             "alert_type": "Auto",
                             "occurred_at": datetime.utcnow().isoformat() + "Z",
-                            "metadata_json": {**t, "motion_ratio": round(ratio, 4)},
-                            "media_refs": [media_url] # Using dynamic IP here
-                        }), qos=1)
-            
-            time.sleep(0.01)
+                            "node_id": NODE_ID,
+                            "metadata_json": {
+                                "edge_event_type": t["type"],
+                                "recommended_severity": t["level"],
+                                "logic_level": t["level"],
+                                "reason": t["reason"],
+                                "motion_ratio": round(ratio, 4),
+                                "inference_model": "yolo11n-int8-ncnn",
+                                "confidence": 0.0
+                            },
+                            "media_refs": media_refs
+                        }
+                        self.mqtt.publish(
+                            f"sentinel/{NODE_ID}/alerts",
+                            json.dumps(alert_payload),
+                            qos=1
+                        )
+                        logging.warning(f"ALERT DISPATCHED: {t['type']} | Evidence: {cloud_url or 'BUFFERED'}")
+
+            time.sleep(0.01)  # ~100 FPS yield
+
 
 if __name__ == "__main__":
     SentinelNode().run()

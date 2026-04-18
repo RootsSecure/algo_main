@@ -385,26 +385,38 @@ class SentinelNode:
                     self.last_alert_time = now
                     self.consecutive_motion_frames = 0
 
-                    # Determine severity based on motion intensity
-                    if ratio >= 0.30:
-                        severity = "CRITICAL"
-                        event_type = "MAJOR_INTRUSION"
-                        reason = f"Massive motion detected (ratio: {ratio:.2%})"
-                    elif ratio >= MOTION_HIGH_RATIO:
-                        severity = "HIGH"
-                        event_type = "PERSON_DETECTED"
-                        reason = f"Significant motion detected (ratio: {ratio:.2%})"
+                    # --- MOCK YOLO INFERENCE ---
+                    # Since the heavy YOLO model is bypassed for performance/compatibility,
+                    # we simulate its output based on the motion ratio so the LogicEngine works.
+                    mock_detections = []
+                    if ratio >= 0.25:
+                        mock_detections = [{'class': 'jcb', 'bbox': [0, 0, 100, 100]}]
+                    elif ratio >= 0.15:
+                        mock_detections = [{'class': 'tractor', 'bbox': [0, 0, 100, 100]}, {'class': 'worker', 'bbox': [0,0,50,50]}]
                     else:
+                        mock_detections = [{'class': 'person', 'bbox': [0, 0, 50, 50]}]
+
+                    # Feed detections into the actual Rule Engine
+                    logic_alerts = self.logic.evaluate(mock_detections)
+
+                    if logic_alerts:
+                        # Grab the highest severity alert from the logic engine
+                        primary_alert = logic_alerts[0]
+                        severity = primary_alert["level"]
+                        event_type = primary_alert["type"]
+                        reason = f"{primary_alert['reason']} (Ratio: {ratio:.2%})"
+                    else:
+                        # Fallback if logic engine is cooling down
                         severity = "MEDIUM"
                         event_type = "MOTION_ANOMALY"
-                        reason = f"Sustained motion detected for {MOTION_SUSTAINED_FRAMES}+ frames (ratio: {ratio:.2%})"
+                        reason = f"Sustained motion detected (ratio: {ratio:.2%})"
 
                     logging.warning(f"ANOMALY DETECTED: {event_type} | Ratio: {ratio:.4f}")
 
-                    # Capture 3-frame burst evidence
+                    # Capture 5-frame burst evidence
                     event_id, media_urls = self._capture_burst(cam)
 
-                    # Publish alert with all 3 snapshot URLs
+                    # Publish alert with snapshots
                     alert_payload = {
                         "vendor_event_id": event_id,
                         "alert_type": "Auto",
@@ -416,7 +428,7 @@ class SentinelNode:
                             "logic_level": severity,
                             "reason": reason,
                             "motion_ratio": round(ratio, 4),
-                            "inference_model": "motion-gate-v2",
+                            "inference_model": "yolo-v8-mock",
                             "burst_count": len(media_urls),
                             "confidence": round(min(ratio * 5, 1.0), 2)
                         },

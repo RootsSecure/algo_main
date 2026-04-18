@@ -12,6 +12,7 @@ import paho.mqtt.client as mqtt
 from picamera2 import Picamera2
 from pathlib import Path
 from datetime import datetime
+import base64
 from uuid import uuid4
 
 # ---------------------------------------------------------------------------
@@ -53,29 +54,30 @@ def get_local_ip():
 
 def upload_to_cloud(local_path, cloud_key):
     """
-    Upload a local file to a cloud storage bucket and return a public/pre-signed URL.
-    
-    This is a placeholder implementation. Replace the body of this function
-    with actual SDK calls for your chosen cloud provider:
-    
-    - AWS S3:       boto3.client('s3').upload_file(...) + generate_presigned_url(...)
-    - Firebase:     firebase_admin.storage.bucket().blob(...).upload_from_filename(...)
-    - Google Cloud: google.cloud.storage.Client().bucket(...).blob(...).upload_from_filename(...)
+    Reads the local image, converts it to a Base64 Data URI, and deletes the local file.
+    Since we don't have an S3 bucket configured yet, embedding the image directly
+    into the MQTT payload allows the Android App to display the evidence immediately.
     """
-    # --- PLACEHOLDER: Simulate a cloud upload ---
-    logging.info(f"[CloudUpload] Uploading {local_path} -> bucket:{CLOUD_BUCKET_NAME}/{cloud_key}")
+    logging.info(f"[CloudUpload] Encoding {local_path} to Base64 for MQTT delivery")
 
-    # In production, replace the line below with actual upload logic.
-    # The function should return the publicly accessible URL of the uploaded file.
-    simulated_url = f"https://{CLOUD_BUCKET_NAME}.s3.amazonaws.com/{cloud_key}"
+    try:
+        # Read the image file
+        with open(local_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            
+        data_uri = f"data:image/jpeg;base64,{encoded_string}"
 
-    # After a real upload succeeds, delete the local temp file:
-    # try:
-    #     os.remove(local_path)
-    # except OSError:
-    #     pass
+        # Clean up the local file immediately since it's encoded
+        try:
+            os.remove(local_path)
+        except OSError:
+            pass
 
-    return simulated_url
+        return data_uri
+
+    except Exception as e:
+        logging.error(f"[CloudUpload] Failed to encode image: {e}")
+        return None
 
 
 # ---------------------------------------------------------------------------

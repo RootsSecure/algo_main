@@ -160,6 +160,14 @@ class LogicEngine:
 # Main Node: Cloud-Native Sentinel
 # ---------------------------------------------------------------------------
 
+# Motion-based anomaly detection thresholds
+MOTION_SUSTAINED_FRAMES = 5       # Consecutive frames with motion to trigger alert
+MOTION_HIGH_RATIO = 0.15          # High motion ratio = significant activity
+ALERT_COOLDOWN_SECONDS = 30       # Minimum seconds between alerts
+BURST_SNAP_COUNT = 3              # Number of snapshots per anomaly event
+BURST_SNAP_INTERVAL = 1.0         # Seconds between burst snapshots
+
+
 class SentinelNode:
     def __init__(self):
         logging.basicConfig(
@@ -170,6 +178,10 @@ class SentinelNode:
         self.motion_gate = MotionGate()
         self.logic = LogicEngine()
         self.cloud_connected = False
+
+        # Motion tracking state
+        self.consecutive_motion_frames = 0
+        self.last_alert_time = 0
 
         # --- Cloud MQTT Setup (TLS on port 8883) ---
         self.mqtt = mqtt.Client(
@@ -293,8 +305,43 @@ class SentinelNode:
             return cloud_url
         except Exception as e:
             logging.warning(f"Cloud upload failed ({e}). Frame buffered locally for retry.")
-            # File remains in LOCAL_BUFFER_DIR for _retry_upload_loop to pick up
             return None
+
+    # --- 3-Frame Burst Capture ---
+
+    def _capture_burst(self, cam):
+        """
+        Captures 3 high-resolution snapshots at 1-second intervals.
+        Returns a list of cloud URLs for the uploaded evidence.
+        """
+        event_id = str(uuid4())
+        media_urls = []
+
+        logging.info(f"[BURST] Capturing {BURST_SNAP_COUNT} evidence snapshots...")
+
+        for i in range(BURST_SNAP_COUNT):
+            snap_id = f"{event_id}_snap{i+1}"
+            proof_frame = cam.capture_array("main")
+            proof_bgr = cv2.cvtColor(proof_frame, cv2.COLOR_RGB2BGR)
+
+            # Add timestamp overlay to the image
+            timestamp_text = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
+            cv2.putText(
+                proof_bgr, f"SENTINEL | {timestamp_text} | Snap {i+1}/{BURST_SNAP_COUNT}",
+                (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2
+            )
+
+            cloud_url = self._upload_evidence(proof_bgr, snap_id)
+            if cloud_url:
+                media_urls.append(cloud_url)
+
+            logging.info(f"[BURST] Snap {i+1}/{BURST_SNAP_COUNT} captured: {snap_id}")
+
+            # Wait between snaps (except after the last one)
+            if i < BURST_SNAP_COUNT - 1:
+                time.sleep(BURST_SNAP_INTERVAL)
+
+        return event_id, media_urls
 
     # --- Main Vision Loop ---
 
@@ -315,57 +362,80 @@ class SentinelNode:
 
         try:
             while True:
-                # Capture frame from the low-res YUV stream for motion/inference
+                # Capture frame from the low-res YUV stream for motion detection
                 frame_yuv = cam.capture_array("lores")
-                # Convert YUV to BGR for OpenCV compatibility
                 frame_bgr = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV420p2BGR)
 
                 # Phase 1: Motion Gate
                 is_motion, ratio = self.motion_gate.has_motion(frame_bgr)
+
                 if is_motion:
-                    # Phase 2: AI Inference (Placeholder for NCNN bindings)
-                    detections = []
+                    self.consecutive_motion_frames += 1
+                else:
+                    self.consecutive_motion_frames = max(0, self.consecutive_motion_frames - 1)
 
-                    # Phase 3: Sentinel Logic
-                    threats = self.logic.evaluate(detections)
+                # --- Anomaly Trigger ---
+                # Fire alert if sustained motion detected for 5+ frames
+                # OR if a single frame has very high motion (> 15%)
+                now = time.time()
+                should_alert = (
+                    (self.consecutive_motion_frames >= MOTION_SUSTAINED_FRAMES or ratio >= MOTION_HIGH_RATIO)
+                    and (now - self.last_alert_time) > ALERT_COOLDOWN_SECONDS
+                )
 
-                    if threats:
-                        event_id = str(uuid4())
+                if should_alert:
+                    self.last_alert_time = now
+                    self.consecutive_motion_frames = 0
 
-                        # Capture high-res frame for evidence
-                        proof_frame = cam.capture_array("main")
-                        proof_bgr = cv2.cvtColor(proof_frame, cv2.COLOR_RGB2BGR)
+                    # Determine severity based on motion intensity
+                    if ratio >= 0.30:
+                        severity = "CRITICAL"
+                        event_type = "MAJOR_INTRUSION"
+                        reason = f"Massive motion detected (ratio: {ratio:.2%})"
+                    elif ratio >= MOTION_HIGH_RATIO:
+                        severity = "HIGH"
+                        event_type = "PERSON_DETECTED"
+                        reason = f"Significant motion detected (ratio: {ratio:.2%})"
+                    else:
+                        severity = "MEDIUM"
+                        event_type = "MOTION_ANOMALY"
+                        reason = f"Sustained motion detected for {MOTION_SUSTAINED_FRAMES}+ frames (ratio: {ratio:.2%})"
 
-                        # Upload evidence to cloud storage
-                        cloud_url = self._upload_evidence(proof_bgr, event_id)
+                    logging.warning(f"ANOMALY DETECTED: {event_type} | Ratio: {ratio:.4f}")
 
-                        media_refs = [cloud_url] if cloud_url else []
+                    # Capture 3-frame burst evidence
+                    event_id, media_urls = self._capture_burst(cam)
 
-                        for t in threats:
-                            alert_payload = {
-                                "vendor_event_id": event_id,
-                                "alert_type": "Auto",
-                                "occurred_at": datetime.utcnow().isoformat() + "Z",
-                                "node_id": NODE_ID,
-                                "metadata_json": {
-                                    "edge_event_type": t["type"],
-                                    "recommended_severity": t["level"],
-                                    "logic_level": t["level"],
-                                    "reason": t["reason"],
-                                    "motion_ratio": round(ratio, 4),
-                                    "inference_model": "yolo11n-int8-ncnn",
-                                    "confidence": 0.0
-                                },
-                                "media_refs": media_refs
-                            }
-                            self.mqtt.publish(
-                                f"sentinel/{NODE_ID}/alerts",
-                                json.dumps(alert_payload),
-                                qos=1
-                            )
-                            logging.warning(f"ALERT DISPATCHED: {t['type']} | Evidence: {cloud_url or 'BUFFERED'}")
+                    # Publish alert with all 3 snapshot URLs
+                    alert_payload = {
+                        "vendor_event_id": event_id,
+                        "alert_type": "Auto",
+                        "occurred_at": datetime.utcnow().isoformat() + "Z",
+                        "node_id": NODE_ID,
+                        "metadata_json": {
+                            "edge_event_type": event_type,
+                            "recommended_severity": severity,
+                            "logic_level": severity,
+                            "reason": reason,
+                            "motion_ratio": round(ratio, 4),
+                            "inference_model": "motion-gate-v2",
+                            "burst_count": len(media_urls),
+                            "confidence": round(min(ratio * 5, 1.0), 2)
+                        },
+                        "media_refs": media_urls
+                    }
+                    self.mqtt.publish(
+                        f"sentinel/{NODE_ID}/alerts",
+                        json.dumps(alert_payload),
+                        qos=1
+                    )
+                    logging.warning(
+                        f"ALERT DISPATCHED: {event_type} | "
+                        f"Severity: {severity} | "
+                        f"Evidence: {len(media_urls)} snapshots"
+                    )
 
-                time.sleep(0.01)  # ~100 FPS yield
+                time.sleep(0.03)  # ~30 FPS yield
 
         except KeyboardInterrupt:
             logging.info("Shutting down gracefully...")

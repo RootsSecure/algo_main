@@ -14,6 +14,10 @@ from pathlib import Path
 from datetime import datetime
 import base64
 from uuid import uuid4
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
 
 # ---------------------------------------------------------------------------
 # Configuration Constants (Cloud-Native v2.0)
@@ -180,6 +184,21 @@ class SentinelNode:
         self.motion_gate = MotionGate()
         self.logic = LogicEngine()
         self.cloud_connected = False
+        
+        # Load the actual trained model if available
+        self.model = None
+        if YOLO:
+            try:
+                model_path = os.path.join(os.path.dirname(__file__), "../../models/best.pt")
+                if os.path.exists(model_path):
+                    self.model = YOLO(model_path)
+                    logging.info(f"AI Model loaded successfully: {model_path}")
+                else:
+                    logging.warning(f"Model file not found at {model_path}. Running in Motion-Only mode.")
+            except Exception as e:
+                logging.error(f"Failed to load AI model: {e}")
+        else:
+            logging.warning("ultralytics library not found. Run 'pip install ultralytics' to enable AI inference.")
 
         # Motion tracking state
         self.consecutive_motion_frames = 0
@@ -385,19 +404,34 @@ class SentinelNode:
                     self.last_alert_time = now
                     self.consecutive_motion_frames = 0
 
-                    # --- MOCK YOLO INFERENCE ---
-                    # Since the heavy YOLO model is bypassed for performance/compatibility,
-                    # we simulate its output based on the motion ratio so the LogicEngine works.
-                    mock_detections = []
-                    if ratio >= 0.25:
-                        mock_detections = [{'class': 'jcb', 'bbox': [0, 0, 100, 100]}]
-                    elif ratio >= 0.15:
-                        mock_detections = [{'class': 'tractor', 'bbox': [0, 0, 100, 100]}, {'class': 'worker', 'bbox': [0,0,50,50]}]
+                    # --- REAL AI INFERENCE (PHASE 2) ---
+                    detections = []
+                    if self.model:
+                        # Run inference on the low-res BGR frame
+                        results = self.model(frame_bgr, verbose=False, conf=0.45)
+                        
+                        for r in results:
+                            for box in r.boxes:
+                                class_id = int(box.cls[0])
+                                label = self.model.names[class_id].lower()
+                                detections.append({
+                                    'class': label,
+                                    'conf': float(box.conf[0]),
+                                    'bbox': box.xyxy[0].tolist()
+                                })
+                        
+                        logging.info(f"Inference complete: detected {len(detections)} objects.")
                     else:
-                        mock_detections = [{'class': 'person', 'bbox': [0, 0, 50, 50]}]
+                        # Fallback to simulation if model is missing
+                        if ratio >= 0.25:
+                            detections = [{'class': 'jcb', 'bbox': [0, 0, 100, 100]}]
+                        elif ratio >= 0.15:
+                            detections = [{'class': 'tractor', 'bbox': [0, 0, 100, 100]}, {'class': 'worker', 'bbox': [0,0,50,50]}]
+                        else:
+                            detections = [{'class': 'person', 'bbox': [0, 0, 50, 50]}]
 
-                    # Feed detections into the actual Rule Engine
-                    logic_alerts = self.logic.evaluate(mock_detections)
+                    # Feed detections into the Logic Rule Engine (PHASE 3)
+                    logic_alerts = self.logic.evaluate(detections)
 
                     if logic_alerts:
                         # Grab the highest severity alert from the logic engine

@@ -193,6 +193,7 @@ class SentinelNode:
                 if os.path.exists(model_path):
                     self.model = YOLO(model_path)
                     logging.info(f"AI Model loaded successfully: {model_path}")
+                    logging.info(f"Model trained to detect: {list(self.model.names.values())}")
                 else:
                     logging.warning(f"Model file not found at {model_path}. Running in Motion-Only mode.")
             except Exception as e:
@@ -407,18 +408,20 @@ class SentinelNode:
                     # --- REAL AI INFERENCE (PHASE 2) ---
                     detections = []
                     if self.model:
-                        # Run inference on the low-res BGR frame
-                        results = self.model(frame_bgr, verbose=False, conf=0.45)
+                        # Run inference on the low-res BGR frame (increased sensitivity)
+                        results = self.model(frame_bgr, verbose=False, conf=0.25)
                         
                         for r in results:
                             for box in r.boxes:
                                 class_id = int(box.cls[0])
                                 label = self.model.names[class_id].lower()
+                                conf = float(box.conf[0])
                                 detections.append({
                                     'class': label,
-                                    'conf': float(box.conf[0]),
+                                    'conf': conf,
                                     'bbox': box.xyxy[0].tolist()
                                 })
+                                logging.info(f"[AI] Detected {label} with {conf:.2f} confidence")
                         
                         logging.info(f"Inference complete: detected {len(detections)} objects.")
                     else:

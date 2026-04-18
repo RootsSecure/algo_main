@@ -34,6 +34,10 @@ MQTT_CLOUD_PASS = os.environ.get("MQTT_CLOUD_PASS", "")
 # Cloud Storage (AWS S3 / Firebase / GCS)
 CLOUD_BUCKET_NAME = os.environ.get("SENTINEL_CLOUD_BUCKET", "rootssecure-evidence")
 
+# Camera Hardware Orientation
+CAMERA_VFLIP = True
+CAMERA_HFLIP = True
+
 # Local buffer for frames pending upload
 LOCAL_BUFFER_DIR = "/tmp/sentinel_buffer/"
 STORAGE_THRESHOLD_PERCENT = 80.0
@@ -340,7 +344,21 @@ class SentinelNode:
         for i in range(BURST_SNAP_COUNT):
             snap_id = f"{event_id}_snap{i+1}"
             proof_frame = cam.capture_array("main")
-            proof_bgr = cv2.cvtColor(proof_frame, cv2.COLOR_RGB2BGR)
+            
+            # Fix orientation and color
+            # If the camera is mounted upside down, we flip both axes
+            if CAMERA_VFLIP and CAMERA_HFLIP:
+                proof_bgr = cv2.flip(proof_frame, -1)
+            elif CAMERA_VFLIP:
+                proof_bgr = cv2.flip(proof_frame, 0)
+            elif CAMERA_HFLIP:
+                proof_bgr = cv2.flip(proof_frame, 1)
+            else:
+                proof_bgr = proof_frame.copy()
+
+            # Picamera2 capture_array with RGB888/BGR888 format usually returns 
+            # data in a format that cv2.imwrite expects. Swapping here was 
+            # causing the 'Blue Skin' effect.
 
             # Add timestamp overlay to the image
             timestamp_text = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
@@ -384,31 +402,25 @@ class SentinelNode:
                 frame_yuv = cam.capture_array("lores")
                 frame_bgr = cv2.cvtColor(frame_yuv, cv2.COLOR_YUV420p2BGR)
 
+                # Fix orientation for inference and motion logic
+                if CAMERA_VFLIP and CAMERA_HFLIP:
+                    frame_bgr = cv2.flip(frame_bgr, -1)
+                elif CAMERA_VFLIP:
+                    frame_bgr = cv2.flip(frame_bgr, 0)
+                elif CAMERA_HFLIP:
+                    frame_bgr = cv2.flip(frame_bgr, 1)
+
                 # Phase 1: Motion Gate
                 is_motion, ratio = self.motion_gate.has_motion(frame_bgr)
 
                 if is_motion:
                     self.consecutive_motion_frames += 1
-                else:
-                    self.consecutive_motion_frames = max(0, self.consecutive_motion_frames - 1)
-
-                # --- Anomaly Trigger ---
-                # Fire alert if sustained motion detected for 5+ frames
-                # OR if a single frame has very high motion (> 15%)
-                now = time.time()
-                should_alert = (
-                    (self.consecutive_motion_frames >= MOTION_SUSTAINED_FRAMES or ratio >= MOTION_HIGH_RATIO)
-                    and (now - self.last_alert_time) > ALERT_COOLDOWN_SECONDS
-                )
-
-                if should_alert:
-                    self.last_alert_time = now
-                    self.consecutive_motion_frames = 0
 
                     # --- REAL AI INFERENCE (PHASE 2) ---
+                    # Inference runs continuously while motion is detected
                     detections = []
                     if self.model:
-                        # Run inference on the low-res BGR frame (increased sensitivity)
+                        # Run inference on the low-res BGR frame
                         results = self.model(frame_bgr, verbose=False, conf=0.25)
                         
                         for r in results:
@@ -421,66 +433,82 @@ class SentinelNode:
                                     'conf': conf,
                                     'bbox': box.xyxy[0].tolist()
                                 })
-                                logging.info(f"[AI] Detected {label} with {conf:.2f} confidence")
                         
-                        logging.info(f"Inference complete: detected {len(detections)} objects.")
+                        if detections:
+                            logging.info(f"Inference complete: detected {len(detections)} objects.")
                     else:
                         # Fallback to simulation if model is missing
                         if ratio >= 0.25:
                             detections = [{'class': 'jcb', 'bbox': [0, 0, 100, 100]}]
                         elif ratio >= 0.15:
                             detections = [{'class': 'tractor', 'bbox': [0, 0, 100, 100]}, {'class': 'worker', 'bbox': [0,0,50,50]}]
-                        else:
+                        elif ratio >= 0.05:
                             detections = [{'class': 'person', 'bbox': [0, 0, 50, 50]}]
 
                     # Feed detections into the Logic Rule Engine (PHASE 3)
                     logic_alerts = self.logic.evaluate(detections)
 
-                    if logic_alerts:
-                        # Grab the highest severity alert from the logic engine
-                        primary_alert = logic_alerts[0]
-                        severity = primary_alert["level"]
-                        event_type = primary_alert["type"]
-                        reason = f"{primary_alert['reason']} (Ratio: {ratio:.2%})"
-                    else:
-                        # Fallback if logic engine is cooling down
-                        severity = "MEDIUM"
-                        event_type = "MOTION_ANOMALY"
-                        reason = f"Sustained motion detected (ratio: {ratio:.2%})"
+                    # --- Anomaly Trigger ---
+                    now = time.time()
+                    cooldown_passed = (now - self.last_alert_time) > ALERT_COOLDOWN_SECONDS
+                    is_sustained_motion = (self.consecutive_motion_frames >= MOTION_SUSTAINED_FRAMES or ratio >= MOTION_HIGH_RATIO)
 
-                    logging.warning(f"ANOMALY DETECTED: {event_type} | Ratio: {ratio:.4f}")
+                    # Alert if Logic Engine found a specific threat, or if we have sustained generic motion
+                    should_alert = logic_alerts or is_sustained_motion
 
-                    # Capture 5-frame burst evidence
-                    event_id, media_urls = self._capture_burst(cam)
+                    if should_alert and cooldown_passed:
+                        self.last_alert_time = now
+                        self.consecutive_motion_frames = 0
 
-                    # Publish alert with snapshots
-                    alert_payload = {
-                        "vendor_event_id": event_id,
-                        "alert_type": "Auto",
-                        "occurred_at": datetime.utcnow().isoformat() + "Z",
-                        "node_id": NODE_ID,
-                        "metadata_json": {
-                            "edge_event_type": event_type,
-                            "recommended_severity": severity,
-                            "logic_level": severity,
-                            "reason": reason,
-                            "motion_ratio": round(ratio, 4),
-                            "inference_model": "yolo-v8-mock",
-                            "burst_count": len(media_urls),
-                            "confidence": round(min(ratio * 5, 1.0), 2)
-                        },
-                        "media_refs": media_urls
-                    }
-                    self.mqtt.publish(
-                        f"sentinel/{NODE_ID}/alerts",
-                        json.dumps(alert_payload),
-                        qos=1
-                    )
-                    logging.warning(
-                        f"ALERT DISPATCHED: {event_type} | "
-                        f"Severity: {severity} | "
-                        f"Evidence: {len(media_urls)} snapshots"
-                    )
+                        if logic_alerts:
+                            # Grab the highest severity alert from the logic engine
+                            primary_alert = logic_alerts[0]
+                            severity = primary_alert["level"]
+                            event_type = primary_alert["type"]
+                            reason = f"{primary_alert['reason']} (Ratio: {ratio:.2%})"
+                        else:
+                            # Fallback if no specific objects detected
+                            severity = "MEDIUM"
+                            event_type = "MOTION_ANOMALY"
+                            reason = f"Sustained motion detected (ratio: {ratio:.2%})"
+
+                        logging.warning(f"ANOMALY DETECTED: {event_type} | Ratio: {ratio:.4f}")
+
+                        # Capture 5-frame burst evidence
+                        event_id, media_urls = self._capture_burst(cam)
+
+                        # Publish alert with snapshots
+                        alert_payload = {
+                            "vendor_event_id": event_id,
+                            "alert_type": "Auto",
+                            "occurred_at": datetime.utcnow().isoformat() + "Z",
+                            "node_id": NODE_ID,
+                            "metadata_json": {
+                                "edge_event_type": event_type,
+                                "recommended_severity": severity,
+                                "logic_level": severity,
+                                "reason": reason,
+                                "motion_ratio": round(ratio, 4),
+                                "inference_model": "yolo-v8-trained",
+                                "burst_count": len(media_urls),
+                                "confidence": round(min(ratio * 5, 1.0), 2)
+                            },
+                            "media_refs": media_urls
+                        }
+                        self.mqtt.publish(
+                            f"sentinel/{NODE_ID}/alerts",
+                            json.dumps(alert_payload),
+                            qos=1
+                        )
+                        logging.warning(
+                            f"ALERT DISPATCHED: {event_type} | "
+                            f"Severity: {severity} | "
+                            f"Evidence: {len(media_urls)} snapshots"
+                        )
+                else:
+                    self.consecutive_motion_frames = max(0, self.consecutive_motion_frames - 1)
+                    # Evaluate empty detections so logic engine state decays naturally
+                    self.logic.evaluate([])
 
                 time.sleep(0.03)  # ~30 FPS yield
 

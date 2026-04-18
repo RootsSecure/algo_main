@@ -166,7 +166,7 @@ class LogicEngine:
 MOTION_SUSTAINED_FRAMES = 5       # Consecutive frames with motion to trigger alert
 MOTION_HIGH_RATIO = 0.15          # High motion ratio = significant activity
 ALERT_COOLDOWN_SECONDS = 30       # Minimum seconds between alerts
-BURST_SNAP_COUNT = 3              # Number of snapshots per anomaly event
+BURST_SNAP_COUNT = 5              # Number of snapshots per anomaly event
 BURST_SNAP_INTERVAL = 1.0         # Seconds between burst snapshots
 
 

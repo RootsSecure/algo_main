@@ -84,7 +84,7 @@ def upload_to_cloud(local_path, cloud_key):
 
 class MotionGate:
     """Blocks expensive inference until pixel-change ratio exceeds threshold."""
-    def __init__(self, threshold=0.05):
+    def __init__(self, threshold=0.02):
         self.mog2 = cv2.createBackgroundSubtractorMOG2(
             history=500, varThreshold=16, detectShadows=False
         )

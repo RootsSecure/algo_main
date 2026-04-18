@@ -294,16 +294,12 @@ class SentinelNode:
         local_path = os.path.join(LOCAL_BUFFER_DIR, filename)
         cloud_key = f"evidence/{NODE_ID}/{date_str}/{filename}"
 
-        # Save frame to local buffer first
-        cv2.imwrite(local_path, frame)
+        # Compress and resize frame for MQTT Base64 transport to prevent Android SQLite crashes
+        frame_resized = cv2.resize(frame, (640, 480))
+        cv2.imwrite(local_path, frame_resized, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
 
         try:
             cloud_url = upload_to_cloud(local_path, cloud_key)
-            # On successful upload, remove local copy
-            try:
-                os.remove(local_path)
-            except OSError:
-                pass
             return cloud_url
         except Exception as e:
             logging.warning(f"Cloud upload failed ({e}). Frame buffered locally for retry.")
